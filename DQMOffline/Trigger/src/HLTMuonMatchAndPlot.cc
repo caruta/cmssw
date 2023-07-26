@@ -43,18 +43,17 @@ HLTMuonMatchAndPlot::HLTMuonMatchAndPlot(const ParameterSet& pset, string hltPat
       hltPath_(std::move(hltPath)),
       moduleLabel_(std::move(moduleLabel)),
       isLastFilter_(islastfilter),
-      hasTargetRecoCuts(targetParams_.exists("recoCuts")),
-      hasProbeRecoCuts(probeParams_.exists("recoCuts")),
-      targetMuonSelector_(targetParams_.getUntrackedParameter<string>("recoCuts", "")),
+      targetMuonEta_(targetParams_.getUntrackedParameter<double>("recoEtaCut", 0.)),
+      targetIsMuonGlb_(targetParams_.getUntrackedParameter<bool>("recoGlbMuCut", false)),
       targetZ0Cut_(targetParams_.getUntrackedParameter<double>("z0Cut", 0.)),
       targetD0Cut_(targetParams_.getUntrackedParameter<double>("d0Cut", 0.)),
       targetptCutZ_(targetParams_.getUntrackedParameter<double>("ptCut_Z", 20.)),
       targetptCutJpsi_(targetParams_.getUntrackedParameter<double>("ptCut_Jpsi", 20.)),
-      probeMuonSelector_(probeParams_.getUntrackedParameter<string>("recoCuts", "")),
+      probeMuonEta_(probeParams_.getUntrackedParameter<double>("recoEtaCut", 0.)),
+      probeIsMuonGlb_(probeParams_.getUntrackedParameter<bool>("recoGlbMuCut", false)),
       probeZ0Cut_(probeParams_.getUntrackedParameter<double>("z0Cut", 0.)),
       probeD0Cut_(probeParams_.getUntrackedParameter<double>("d0Cut", 0.)),
-      triggerSelector_(targetParams_.getUntrackedParameter<string>("hltCuts", "")),
-      hasTriggerCuts_(targetParams_.exists("hltCuts")) {
+      triggerEtaCut_(targetParams_.getUntrackedParameter<double>("hltEtaCut", 0.)) {
   // Create std::map<string, T> from ParameterSets.
   fillMapFromPSet(binParams_, pset, "binParams");
   fillMapFromPSet(plotCuts_, pset, "plotCuts");
@@ -109,6 +108,7 @@ void HLTMuonMatchAndPlot::beginRun(DQMStore::IBooker& iBooker, const edm::Run& i
     book1D(iBooker, "efficiencyEta_" + suffix, "eta", ";#eta;");
     book1D(iBooker, "efficiencyPhi_" + suffix, "phi", ";#phi;");
     book1D(iBooker, "efficiencyTurnOn_" + suffix, "pt", ";p_{T};");
+    book1D(iBooker, "efficiencyNVertex_" + suffix, "NVertex", ";NVertex;");
 
     if (isLastFilter_)
       iBooker.setCurrentFolder(baseDir + pathSansSuffix);
@@ -119,6 +119,8 @@ void HLTMuonMatchAndPlot::beginRun(DQMStore::IBooker& iBooker, const edm::Run& i
       continue;  //this will be plotted only for the last filter
 
     book1D(iBooker, "efficiencyCharge_" + suffix, "charge", ";charge;");
+    book1D(iBooker, "efficiencyZ0_" + suffix, "z0", ";z0;");
+    book1D(iBooker, "efficiency_DZ_Mu_" + suffix, "z0", ";z0;");
   }
 }
 
@@ -171,12 +173,11 @@ void HLTMuonMatchAndPlot::analyze(Handle<MuonCollection>& allMuons,
 
   // Select objects based on the configuration.
   MuonCollection targetMuons =
-      selectedMuons(*allMuons, *beamSpot, hasTargetRecoCuts, targetMuonSelector_, targetD0Cut_, targetZ0Cut_);
+      selectedMuons(*allMuons, *beamSpot, targetMuonEta_, targetIsMuonGlb_, targetD0Cut_, targetZ0Cut_);
   MuonCollection probeMuons =
-      selectedMuons(*allMuons, *beamSpot, hasProbeRecoCuts, probeMuonSelector_, probeD0Cut_, probeZ0Cut_);
+      selectedMuons(*allMuons, *beamSpot, probeMuonEta_, probeIsMuonGlb_, probeD0Cut_, probeZ0Cut_);
   TriggerObjectCollection allTriggerObjects = triggerSummary->getObjects();
-  TriggerObjectCollection hltMuons =
-      selectedTriggerObjects(allTriggerObjects, *triggerSummary, hasTriggerCuts_, triggerSelector_);
+  TriggerObjectCollection hltMuons = selectedTriggerObjects(allTriggerObjects, *triggerSummary, triggerEtaCut_);
   // Fill plots for HLT muons.
 
   // Find the best trigger object matches for the targetMuons.
@@ -207,9 +208,11 @@ void HLTMuonMatchAndPlot::analyze(Handle<MuonCollection>& allMuons,
         else if (muon.isStandAloneMuon())
           track = &*muon.outerTrack();
         if (track) {
+          hists_["efficiencyNVertex_" + suffix]->Fill(vertices->size());
           hists_["efficiencyPhi_" + suffix]->Fill(muon.phi());
 
           if (isLastFilter_) {
+            hists_["efficiencyZ0_" + suffix]->Fill(track->dz(beamSpot->position()));
             hists_["efficiencyCharge_" + suffix]->Fill(muon.charge());
           }
         }
@@ -231,38 +234,11 @@ void HLTMuonMatchAndPlot::analyze(Handle<MuonCollection>& allMuons,
   if (!isLastFilter_)
     return;
   unsigned int numTriggers = trigNames.size();
-  bool passTrigger = false;
-  if (requiredTriggers_.empty())
-    passTrigger = true;
-  for (auto const& requiredTrigger : requiredTriggers_) {
-    for (unsigned int hltIndex = 0; hltIndex < numTriggers; ++hltIndex) {
-      passTrigger = (trigNames.triggerName(hltIndex).find(requiredTrigger) != std::string::npos &&
-                     triggerResults->wasrun(hltIndex) && triggerResults->accept(hltIndex));
-      if (passTrigger)
-        break;
-    }
-  }
 
   int nMatched = 0;
   for (unsigned long matche : matches) {
     if (matche < targetMuons.size())
       nMatched++;
-  }
-
-  string nonSameSignPath = hltPath_;
-  bool ssPath = false;
-  if (nonSameSignPath.rfind("_SameSign") < nonSameSignPath.length()) {
-    ssPath = true;
-    nonSameSignPath = boost::replace_all_copy<string>(nonSameSignPath, "_SameSign", "");
-    nonSameSignPath = nonSameSignPath.substr(0, nonSameSignPath.rfind("_v") + 2);
-  }
-  bool passTriggerSS = false;
-  if (ssPath) {
-    for (unsigned int hltIndex = 0; hltIndex < numTriggers; ++hltIndex) {
-      passTriggerSS =
-          passTriggerSS || (trigNames.triggerName(hltIndex).substr(0, nonSameSignPath.size()) == nonSameSignPath &&
-                            triggerResults->wasrun(hltIndex) && triggerResults->accept(hltIndex));
-    }
   }
 
   string nonDZPath = hltPath_;
@@ -273,20 +249,40 @@ void HLTMuonMatchAndPlot::analyze(Handle<MuonCollection>& allMuons,
     nonDZPath = nonDZPath.substr(0, nonDZPath.rfind("_v") + 2);
   }
   bool passTriggerDZ = false;
+
   if (dzPath) {
     for (unsigned int hltIndex = 0; hltIndex < numTriggers; ++hltIndex) {
       passTriggerDZ = passTriggerDZ || (trigNames.triggerName(hltIndex).find(nonDZPath) != std::string::npos &&
                                         triggerResults->wasrun(hltIndex) && triggerResults->accept(hltIndex));
     }
   }
+  if (dzPath && targetMuons.size() > 1 && passTriggerDZ) {
+    const Track* track0 = nullptr;
+    const Track* track1 = nullptr;
+    if (targetMuons.at(0).isTrackerMuon())
+      track0 = &*targetMuons.at(0).innerTrack();
+    else if (targetMuons.at(0).isStandAloneMuon())
+      track0 = &*targetMuons.at(0).outerTrack();
+    if (targetMuons.at(1).isTrackerMuon())
+      track1 = &*targetMuons.at(1).innerTrack();
+    else if (targetMuons.at(1).isStandAloneMuon())
+      track1 = &*targetMuons.at(1).outerTrack();
+
+    if (track0 && track1) {
+      hists_["efficiency_DZ_Mu_denom"]->Fill(track0->dz(beamSpot->position()) - track1->dz(beamSpot->position()));
+      if (nMatched > 1) {
+        hists_["efficiency_DZ_Mu_numer"]->Fill(track0->dz(beamSpot->position()) - track1->dz(beamSpot->position()));
+      }
+    }
+  }
 
 }  // End analyze() method.
 
 // Method to fill binning parameters from a vector of doubles.
-void HLTMuonMatchAndPlot::fillEdges(size_t& nBins, float*& edges, const vector<double>& binning) {
+bool HLTMuonMatchAndPlot::fillEdges(size_t& nBins, float*& edges, const vector<double>& binning) {
   if (binning.size() < 3) {
     LogWarning("HLTMuonVal") << "Invalid binning parameters!";
-    return;
+    return false;
   }
 
   // Fixed-width binning.
@@ -306,6 +302,7 @@ void HLTMuonMatchAndPlot::fillEdges(size_t& nBins, float*& edges, const vector<d
     for (size_t i = 0; i <= nBins; i++)
       edges[i] = binning[i];
   }
+  return true;
 }
 
 // This is an unorthodox method of getting parameters, but cleaner in my mind
@@ -375,14 +372,10 @@ vector<size_t> HLTMuonMatchAndPlot::matchByDeltaR(const vector<T1>& collection1,
 
 MuonCollection HLTMuonMatchAndPlot::selectedMuons(const MuonCollection& allMuons,
                                                   const BeamSpot& beamSpot,
-                                                  bool hasRecoCuts,
-                                                  const StringCutObjectSelector<reco::Muon>& selector,
+                                                  double RecoMuonEta,
+                                                  bool IsMuonGlb,
                                                   double d0Cut,
                                                   double z0Cut) {
-  // If there is no selector (recoCuts does not exists), return an empty collection.
-  if (!hasRecoCuts)
-    return MuonCollection();
-
   MuonCollection reducedMuons;
   for (auto const& mu : allMuons) {
     const Track* track = nullptr;
@@ -390,7 +383,10 @@ MuonCollection HLTMuonMatchAndPlot::selectedMuons(const MuonCollection& allMuons
       track = &*mu.innerTrack();
     else if (mu.isStandAloneMuon())
       track = &*mu.outerTrack();
-    if (track && selector(mu) && fabs(track->dxy(beamSpot.position())) < d0Cut &&
+    bool muID = true;
+    if (IsMuonGlb)
+      muID = mu.isGlobalMuon();
+    if (track && muID && abs(mu.eta()) < RecoMuonEta && fabs(track->dxy(beamSpot.position())) < d0Cut &&
         fabs(track->dz(beamSpot.position())) < z0Cut)
       reducedMuons.push_back(mu);
   }
@@ -398,14 +394,9 @@ MuonCollection HLTMuonMatchAndPlot::selectedMuons(const MuonCollection& allMuons
   return reducedMuons;
 }
 
-TriggerObjectCollection HLTMuonMatchAndPlot::selectedTriggerObjects(
-    const TriggerObjectCollection& triggerObjects,
-    const TriggerEvent& triggerSummary,
-    bool hasTriggerCuts,
-    const StringCutObjectSelector<TriggerObject>& triggerSelector) {
-  if (!hasTriggerCuts)
-    return TriggerObjectCollection();
-
+TriggerObjectCollection HLTMuonMatchAndPlot::selectedTriggerObjects(const TriggerObjectCollection& triggerObjects,
+                                                                    const TriggerEvent& triggerSummary,
+                                                                    double triggerEtaCut_) {
   InputTag filterTag(moduleLabel_, "", hltProcessName_);
   size_t filterIndex = triggerSummary.filterIndex(filterTag);
 
@@ -415,7 +406,7 @@ TriggerObjectCollection HLTMuonMatchAndPlot::selectedTriggerObjects(
     const Keys& keys = triggerSummary.filterKeys(filterIndex);
     for (unsigned short key : keys) {
       TriggerObject foundObject = triggerObjects[key];
-      if (triggerSelector(foundObject))
+      if (abs(foundObject.eta()) < triggerEtaCut_)
         selectedObjects.push_back(foundObject);
     }
   }
@@ -432,14 +423,14 @@ void HLTMuonMatchAndPlot::book1D(DQMStore::IBooker& iBooker, string name, const 
 
   size_t nBins;
   float* edges = nullptr;
-  fillEdges(nBins, edges, binParams_[binningType]);
-  hists_[name] = iBooker.book1D(name, title, nBins, edges);
-  if (hists_[name])
+  bool bookhist = fillEdges(nBins, edges, binParams_[binningType]);
+  if (bookhist) {
+    hists_[name] = iBooker.book1D(name, title, nBins, edges);
     if (hists_[name]->getTH1F()->GetSumw2N())
       hists_[name]->enableSumw2();
 
-  if (edges)
     delete[] edges;
+  }
 }
 
 void HLTMuonMatchAndPlot::book2D(DQMStore::IBooker& iBooker,
@@ -455,19 +446,17 @@ void HLTMuonMatchAndPlot::book2D(DQMStore::IBooker& iBooker,
 
   size_t nBinsX;
   float* edgesX = nullptr;
-  fillEdges(nBinsX, edgesX, binParams_[binningTypeX]);
+  bool bookhist = fillEdges(nBinsX, edgesX, binParams_[binningTypeX]);
 
   size_t nBinsY;
   float* edgesY = nullptr;
-  fillEdges(nBinsY, edgesY, binParams_[binningTypeY]);
-
-  hists_[name] = iBooker.book2D(name.c_str(), title.c_str(), nBinsX, edgesX, nBinsY, edgesY);
-  if (hists_[name])
+  bookhist &= fillEdges(nBinsY, edgesY, binParams_[binningTypeY]);
+  if (bookhist) {
+    hists_[name] = iBooker.book2D(name.c_str(), title.c_str(), nBinsX, edgesX, nBinsY, edgesY);
     if (hists_[name]->getTH2F()->GetSumw2N())
       hists_[name]->enableSumw2();
 
-  if (edgesX)
     delete[] edgesX;
-  if (edgesY)
     delete[] edgesY;
+  }
 }
