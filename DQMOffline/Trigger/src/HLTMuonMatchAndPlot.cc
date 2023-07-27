@@ -43,17 +43,20 @@ HLTMuonMatchAndPlot::HLTMuonMatchAndPlot(const ParameterSet& pset, string hltPat
       hltPath_(std::move(hltPath)),
       moduleLabel_(std::move(moduleLabel)),
       isLastFilter_(islastfilter),
-      targetMuonEta_(targetParams_.getUntrackedParameter<double>("recoEtaCut", 0.)),
+      targetMuonEtaMax_(targetParams_.getUntrackedParameter<double>("recoMaxEtaCut", 0.)),
+      targetMuonEtaMin_(targetParams_.getUntrackedParameter<double>("recoMinEtaCut", 0.)),
       targetIsMuonGlb_(targetParams_.getUntrackedParameter<bool>("recoGlbMuCut", false)),
       targetZ0Cut_(targetParams_.getUntrackedParameter<double>("z0Cut", 0.)),
       targetD0Cut_(targetParams_.getUntrackedParameter<double>("d0Cut", 0.)),
       targetptCutZ_(targetParams_.getUntrackedParameter<double>("ptCut_Z", 20.)),
       targetptCutJpsi_(targetParams_.getUntrackedParameter<double>("ptCut_Jpsi", 20.)),
-      probeMuonEta_(probeParams_.getUntrackedParameter<double>("recoEtaCut", 0.)),
+      probeMuonEtaMax_(probeParams_.getUntrackedParameter<double>("recoMaxEtaCut", 0.)),
+      probeMuonEtaMin_(probeParams_.getUntrackedParameter<double>("recoMinEtaCut", 0.)),
       probeIsMuonGlb_(probeParams_.getUntrackedParameter<bool>("recoGlbMuCut", false)),
       probeZ0Cut_(probeParams_.getUntrackedParameter<double>("z0Cut", 0.)),
       probeD0Cut_(probeParams_.getUntrackedParameter<double>("d0Cut", 0.)),
-      triggerEtaCut_(targetParams_.getUntrackedParameter<double>("hltEtaCut", 0.)) {
+      triggerEtaMaxCut_(targetParams_.getUntrackedParameter<double>("hltMaxEtaCut", 0.)),
+      triggerEtaMinCut_(targetParams_.getUntrackedParameter<double>("hltMinEtaCut", 0.)) {
   // Create std::map<string, T> from ParameterSets.
   fillMapFromPSet(binParams_, pset, "binParams");
   fillMapFromPSet(plotCuts_, pset, "plotCuts");
@@ -172,12 +175,13 @@ void HLTMuonMatchAndPlot::analyze(Handle<MuonCollection>& allMuons,
   */
 
   // Select objects based on the configuration.
-  MuonCollection targetMuons =
-      selectedMuons(*allMuons, *beamSpot, targetMuonEta_, targetIsMuonGlb_, targetD0Cut_, targetZ0Cut_);
-  MuonCollection probeMuons =
-      selectedMuons(*allMuons, *beamSpot, probeMuonEta_, probeIsMuonGlb_, probeD0Cut_, probeZ0Cut_);
+  MuonCollection targetMuons = selectedMuons(
+      *allMuons, *beamSpot, targetMuonEtaMax_, targetMuonEtaMin_, targetIsMuonGlb_, targetD0Cut_, targetZ0Cut_);
+  MuonCollection probeMuons = selectedMuons(
+      *allMuons, *beamSpot, probeMuonEtaMax_, probeMuonEtaMin_, probeIsMuonGlb_, probeD0Cut_, probeZ0Cut_);
   TriggerObjectCollection allTriggerObjects = triggerSummary->getObjects();
-  TriggerObjectCollection hltMuons = selectedTriggerObjects(allTriggerObjects, *triggerSummary, triggerEtaCut_);
+  TriggerObjectCollection hltMuons =
+      selectedTriggerObjects(allTriggerObjects, *triggerSummary, triggerEtaMaxCut_, triggerEtaMinCut_);
   // Fill plots for HLT muons.
 
   // Find the best trigger object matches for the targetMuons.
@@ -372,7 +376,8 @@ vector<size_t> HLTMuonMatchAndPlot::matchByDeltaR(const vector<T1>& collection1,
 
 MuonCollection HLTMuonMatchAndPlot::selectedMuons(const MuonCollection& allMuons,
                                                   const BeamSpot& beamSpot,
-                                                  double RecoMuonEta,
+                                                  double RecoMuonEtaMax,
+                                                  double RecoMuonEtaMin,
                                                   bool IsMuonGlb,
                                                   double d0Cut,
                                                   double z0Cut) {
@@ -386,8 +391,10 @@ MuonCollection HLTMuonMatchAndPlot::selectedMuons(const MuonCollection& allMuons
     bool muID = true;
     if (IsMuonGlb)
       muID = mu.isGlobalMuon();
-    if (track && muID && abs(mu.eta()) < RecoMuonEta && fabs(track->dxy(beamSpot.position())) < d0Cut &&
-        fabs(track->dz(beamSpot.position())) < z0Cut)
+    else
+      muID = mu.isStandAloneMuon();  // minimun ID (requested for cosmics)
+    if (track && muID && abs(mu.eta()) < RecoMuonEtaMax && abs(mu.eta()) >= RecoMuonEtaMin &&
+        fabs(track->dxy(beamSpot.position())) < d0Cut && fabs(track->dz(beamSpot.position())) < z0Cut)
       reducedMuons.push_back(mu);
   }
 
@@ -396,7 +403,8 @@ MuonCollection HLTMuonMatchAndPlot::selectedMuons(const MuonCollection& allMuons
 
 TriggerObjectCollection HLTMuonMatchAndPlot::selectedTriggerObjects(const TriggerObjectCollection& triggerObjects,
                                                                     const TriggerEvent& triggerSummary,
-                                                                    double triggerEtaCut_) {
+                                                                    double triggerEtaMaxCut,
+                                                                    double triggerEtaMinCut) {
   InputTag filterTag(moduleLabel_, "", hltProcessName_);
   size_t filterIndex = triggerSummary.filterIndex(filterTag);
 
@@ -406,7 +414,7 @@ TriggerObjectCollection HLTMuonMatchAndPlot::selectedTriggerObjects(const Trigge
     const Keys& keys = triggerSummary.filterKeys(filterIndex);
     for (unsigned short key : keys) {
       TriggerObject foundObject = triggerObjects[key];
-      if (abs(foundObject.eta()) < triggerEtaCut_)
+      if (abs(foundObject.eta()) < triggerEtaMaxCut && abs(foundObject.eta()) >= triggerEtaMinCut)
         selectedObjects.push_back(foundObject);
     }
   }
