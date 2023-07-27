@@ -11,13 +11,17 @@ hltMuonOfflineAnalyzer = DQMEDAnalyzer('HLTMuonOfflineAnalyzer',
 
     ## HLT paths passing any one of these regular expressions will be included
     hltPathsToCheck = cms.vstring(
+      "HLT_Mu8_TrkIsoVVL_v",
       "HLT_Mu50_v",
+      "HLT_Mu24_v",
       "HLT_IsoMu24_v",
       "HLT_IsoMu27_v",
       "HLT_IsoMu20_v",
-      "HLT_HIL3Mu12_v1", #for HI
-      "HLT_HIL3Mu15_v1", #for HI
-      "HLT_HIL3Mu20_v1", #for HI
+      "HLT_HIL3Mu12_v", #for HI
+      "HLT_HIL3Mu15_v", #for HI
+      "HLT_HIL3Mu20_v", #for HI
+      "HLT_CascadeMu100_v",
+      "HLT_HighPtTkMu100_v"
     ),
 
 #HLT_Mu15_eta2p1_TriCentral_40_20_20_BTagIP3D1stTrack_v3 matches HLT_Mu15_eta2p1_v
@@ -90,8 +94,11 @@ hltMuonOfflineAnalyzer = DQMEDAnalyzer('HLTMuonOfflineAnalyzer',
         d0Cut = cms.untracked.double(2.0),
         z0Cut = cms.untracked.double(25.0),
         ## cuts
-        recoCuts = cms.untracked.string("isGlobalMuon && abs(eta) < 2.4"),
-        hltCuts  = cms.untracked.string("abs(eta) < 2.4"),
+        recoMaxEtaCut = cms.untracked.double(2.4),
+        recoMinEtaCut = cms.untracked.double(0.0),
+        recoGlbMuCut = cms.untracked.bool(True),
+        hltMaxEtaCut  = cms.untracked.double(2.4),
+        hltMinEtaCut  = cms.untracked.double(0.0),
     ),
 
     ## If this PSet is empty, then no "tag and probe" plots are produced;
@@ -102,8 +109,11 @@ hltMuonOfflineAnalyzer = DQMEDAnalyzer('HLTMuonOfflineAnalyzer',
         d0Cut = cms.untracked.double(2.0),
         z0Cut = cms.untracked.double(25.0),
         ## cuts
-        recoCuts = cms.untracked.string("isGlobalMuon && abs(eta) < 2.4"),
-        hltCuts  = cms.untracked.string("abs(eta) < 2.4"),
+        recoMaxEtaCut = cms.untracked.double(2.4),
+        recoMinEtaCut = cms.untracked.double(0.0),
+        recoGlbMuCut = cms.untracked.bool(True),        
+        hltMaxEtaCut  = cms.untracked.double(2.4),
+        hltMinEtaCut  = cms.untracked.double(0.0),
     ),
 
 )
