@@ -81,11 +81,13 @@ private:
   // Internal Methods
   void book1D(DQMStore::IBooker &, std::string, const std::string &, std::string);
   void book2D(DQMStore::IBooker &, const std::string &, const std::string &, const std::string &, const std::string &);
-  reco::MuonCollection selectedMuons(const reco::MuonCollection &, const reco::BeamSpot &, double, bool, double, double);
+  reco::MuonCollection selectedMuons(
+      const reco::MuonCollection &, const reco::BeamSpot &, double, double, bool, double, double);
 
   trigger::TriggerObjectCollection selectedTriggerObjects(const trigger::TriggerObjectCollection &,
                                                           const trigger::TriggerEvent &,
-                                                          double triggerEtaCut_);
+                                                          double,
+                                                          double);
 
   // Input from Configuration File
   std::string hltProcessName_;
@@ -104,17 +106,20 @@ private:
   bool isLastFilter_;
   std::map<std::string, MonitorElement *> hists_;
 
-  double targetMuonEta_;
+  double targetMuonEtaMax_;
+  double targetMuonEtaMin_;
   bool targetIsMuonGlb_;
   double targetZ0Cut_;
   double targetD0Cut_;
   double targetptCutZ_;
   double targetptCutJpsi_;
-  double probeMuonEta_;
+  double probeMuonEtaMax_;
+  double probeMuonEtaMin_;
   bool probeIsMuonGlb_;
   double probeZ0Cut_;
   double probeD0Cut_;
-  double triggerEtaCut_;
+  double triggerEtaMaxCut_;
+  double triggerEtaMinCut_;
 };
 
 #endif
